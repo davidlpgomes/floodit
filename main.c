@@ -6,6 +6,7 @@
 #include "floodit.h"
 #include "utils.h"
 
+
 int main() {
     srand(time(NULL));
 
@@ -27,24 +28,37 @@ int main() {
     board_t* board = create_board(fl);
     read_board(board);
 
-    //clear_terminal();
-    //print_board(board);
-    //unsigned color;
-    //unsigned corner;
+    /*
+    clear_terminal();
+    print_board(board);
+    unsigned color;
+    unsigned corner;
 
-    //board_t* rand_board = create_board(fl);
-    //copy_board(rand_board, board);
+    while (!is_flooded(board)) {
+        for (int i = 1; i <= board->fl->k; i++) {
+            printf("    %d) ", i);
+            printf(ansi_bgs[i - 1]);
+            printf("  " ANSI_COLOR_RESET);
+        }
+        printf("\nChoose color: ");
+        scanf("%u", &color);
 
-    //printf("\nExecutando com aleatoriedade de ações...\n");
-    //sleep(1);
-    //while (!is_flooded(rand_board)) {
-    //    color = rand() % fl->k + 1;
-    //    corner = rand() % 5;
-    //    usleep(10000);
-    //    paint_corner(rand_board, corner, color);
-    //    clear_terminal();
-    //    print_board(rand_board);
-    //}
+        printf("\n1) UL  2) UR  3) LR  4) LL, choose: ");
+        scanf("%u", &corner);
+
+        usleep(10000);
+        int r = 0, c = 0;
+        if (corner == 2 || corner == 3)
+            c = board->fl->m - 1;
+        if (corner == 3 || corner == 4)
+            r = board->fl->n - 1;
+        flood(board, color, r, c);
+        clear_terminal();
+        print_board(board);
+    }
+    return 0;
+    */
+    
 
     //clear_terminal();
     //printf("Executando com máquina de busca (heurística baseline)...\n");
