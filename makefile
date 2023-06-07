@@ -8,17 +8,23 @@ PROG = floodit
 all: $(PROG)
 debug: $(PROG)-debug
 
-$(PROG): utils.o queue.o tree.o floodit.o main.o
-	$(CC) $(CFLAGS) utils.o queue.o tree.o floodit.o main.o -o $(PROG) $(LFLAGS)
+$(PROG): utils.o queue.o tree.o floodit.o search.o main.o
+	$(CC) $(CFLAGS) utils.o queue.o tree.o floodit.o search.o main.o -o $(PROG) $(LFLAGS)
 
-$(PROG)-debug: utils-debug.o queue.o tree.o floodit-debug.o main-debug.o
-	$(CC) $(CFLAGS) -DDEBUG utils-debug.o queue.o tree.o floodit-debug.o main-debug.o -o $(PROG) $(LFLAGS)
+$(PROG)-debug: utils-debug.o queue.o tree.o floodit-debug.o search-debug.o main-debug.o
+	$(CC) $(CFLAGS) -DDEBUG utils-debug.o queue.o tree.o floodit-debug.o search-debug.o main-debug.o -o $(PROG) $(LFLAGS)
 
 main.o: main.c
 	$(CC) -c $(CFLAGS) main.c $(LFLAGS)
 
 main-debug.o: main.c
 	$(CC) -c $(CFLAGS) -DDEBUG main.c -o main-debug.o $(LFLAGS)
+
+search.o: search.c search.h
+	$(CC) -c $(CFLAGS) search.c $(LFLAGS)
+
+search-debug.o: search.c search.h
+	$(CC) -c $(CFLAGS) -DDEBUG search.c -o search-debug.o $(LFLAGS)
 
 floodit.o: floodit.c floodit.h
 	$(CC) -c $(CFLAGS) floodit.c $(LFLAGS)
