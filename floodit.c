@@ -90,10 +90,6 @@ void free_board(board_t *board) {
 
     free(board);
 
-    #ifdef DEBUG
-    printf("[FL] Board freed\n");
-    #endif
-
     return;
 }
 

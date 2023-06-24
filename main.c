@@ -58,14 +58,12 @@ int main() {
     // return 0;
 
     clear_terminal();
-    printf("Executando com máquina de busca (heurística baseline)...\n");
     search_t *search = create_search(fl);
-    search_node_t *best = sma(search);
+    search_node_t *best = search_node(search);
 
     if (!best)
-        fprintf(stderr, "Could not find optimum\n");
+        fprintf(stderr, "Could not find path\n");
     else {
-        //printf("\nRANDOM           - passos: %d\n", rand_board->p);
         printf("Busca (baseline) - passos: %d\n", (int) best->g);
         printf("    Nodos gerados: %u\n", search->ng);
     }

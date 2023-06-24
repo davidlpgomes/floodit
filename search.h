@@ -4,7 +4,7 @@
 #include "tree.h"
 #include "floodit.h"
 
-#define MAX_STATES 20000
+#define MAX_STATES 100000
 
 typedef enum { UNEXAMINED, EXISTS, FORGOTTEN } board_state_t;
 
@@ -43,6 +43,7 @@ typedef struct search_t {
     search_node_t *root;
 } search_t;
 
+
 search_t *create_search(flood_t *flood);
 
 void free_search(search_t *search);
@@ -50,6 +51,16 @@ void free_search(search_t *search);
 search_node_t *create_search_node(search_t *search, search_node_t *parent);
 
 void free_search_nodes(search_t *search, search_node_t *node);
+
+search_node_t *next(search_t *search, search_node_t *parent, int i, int corner);
+
+search_node_t *test_ramification(search_t *search, search_node_t *node, int corner, unsigned depth);
+
+search_node_t *searx(search_t *search, int depth);
+
+search_node_t *search_node(search_t *search);
+
+int get_distance_from_middle(search_node_t *node);
 
 double heuristic(search_node_t *node);
 

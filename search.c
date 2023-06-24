@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <time.h>
 
+#include "floodit.h"
 #include "search.h"
 #include "utils.h"
 
@@ -11,6 +12,7 @@ double time_sma = 0;
 double time_if = 0;
 double time_ns = 0;
 double time_paint = 0;
+double time_searx = 0;
 double time_h = 0;
 double time_bk = 0;
 double time_hc = 0;
@@ -20,7 +22,7 @@ search_t *create_search(flood_t *flood) {
     search_t *search = malloc(sizeof(search_t));
     test_alloc(search, "search");
 
-    search->bf = 4 * (flood->k - 1);
+    search->bf = flood->k - 1;
     search->ng = 0;
 
     search->flood = flood;
@@ -67,7 +69,7 @@ search_node_t *create_search_node(search_t *search, search_node_t *parent) {
     node->h = 0;
     node->f = 0;
 
-    node->succs = malloc(sizeof(search_node_t*) * search->bf);
+    node->succs = calloc(search->bf, sizeof(search_node_t*));
     test_alloc(node->succs, "node succs");
 
     node->succs_size = 0;
@@ -112,17 +114,271 @@ void free_search_nodes(search_t *search, search_node_t *node) {
 
     free(node);
 
+    return;
+}
+
+search_node_t *next(search_t *search, search_node_t *parent, int i, int corner) {
+    board_t *b = parent->board;
+
+    unsigned color = i + 1;
+
+    unsigned ei = search->flood->n - 1;
+    unsigned ej = search->flood->m - 1;
+
+    if (
+        (corner == UL && color >= b->matrix[0][0].c) ||
+        (corner == UR && color >= b->matrix[0][ej].c) ||
+        (corner == LR && color >= b->matrix[ei][ej].c) ||
+        (corner == LL && color >= b->matrix[ei][0].c)
+    )
+        color++;
+
     #ifdef DEBUG
-    printf("[FL] Search node freed\n");
+    printf(
+        "[FL][SX][NX] Generating succ i=%d cor=%d col=%u\n",
+        i,
+        corner,
+        color
+    );
     #endif
 
-    return;
+    search_node_t *succ = create_search_node(search, parent);
+    copy_board(search->flood, succ->board, parent->board);
+
+    parent->succs_states[i] = EXISTS;
+    parent->succs[i] = succ;
+    parent->succs_size++;
+
+    succ->parent = parent;
+    succ->action.cor = corner + 97;
+    succ->action.col = color;
+
+    int r = -1;
+    int c = -1;
+
+    if (corner == UL || corner == UR) r = 0;
+    else r = search->flood->n - 1;
+
+    if (corner == UL || corner == LL) c = 0;
+    else c = search->flood->m - 1;
+
+    double start = timestamp();
+    flood(search->flood, succ->board, color, r, c);
+    time_paint += timestamp() - start;
+
+    start = timestamp();
+    succ->h = heuristic(succ);
+    time_h += timestamp() - start;
+
+    succ->g = parent->g + 1;
+    succ->f = succ->g + succ->h;
+
+    return succ;
+}
+
+search_node_t *test_ramification(
+    search_t *search,
+    search_node_t *node,
+    int corner,
+    unsigned depth
+) {
+    #ifdef DEBUG
+    printf(
+        "[FL][SX][TR] Running test ramification with node=%p cor=%u d=%u\n",
+        node, corner, depth
+    );
+    #endif
+
+    if (!node)
+        return NULL;
+
+    if (!depth)
+        return node;
+
+    search_node_t *succ = NULL;
+    search_node_t *best = NULL;
+    search_node_t *best_down = NULL;
+
+    succ = next(search, node, 0, corner);
+    best_down = test_ramification(search, succ, corner, depth - 1);
+    best = best_down;
+
+    double start;
+
+    for (int i = 1; i < search->bf; i++) {
+        start = timestamp();
+        succ = next(search, node, i, corner);
+        time_ns += timestamp() - start;
+
+        if (!succ) break;
+
+        if (!succ->h) {
+            best = succ;
+            break;
+        }
+
+        search->ng++;
+
+        /*
+        #ifndef DEBUG
+        clear_terminal();
+        print_board(search->flood, succ->board);
+        usleep(100000);
+        printf("\n");
+        #endif
+        */
+
+        best_down = test_ramification(search, succ, corner, depth - 1);
+
+        if (best_down->h < best->h) {
+            free_search_nodes(search, best);
+            best = best_down;
+        } else
+            free_search_nodes(search, best_down);
+
+        #ifdef DEBUG
+        printf(
+            "[RAM] Best is d=%u h=%f g=%f cor=%d col=%d\n",
+            depth, best->h, best->g, corner, best->action.col
+        );
+        #endif
+
+        if (!best->h)
+            break;
+    }
+
+    return best;
+}
+
+search_node_t *searx(search_t *search, int depth) {
+    search_node_t *root = search->root, *best;
+
+    #ifdef DEBUG
+    printf("[FL][SX] Running searx\n");
+    #endif
+
+    double start = timestamp();
+
+    int corner = UL;
+    search_node_t *cor = test_ramification(search, root, UL, depth);
+    best = cor;
+
+    cor = test_ramification(search, root, UR, depth);
+    if (cor->f < best->f) {
+        free_search_nodes(search, best);
+        best = cor;
+        corner = UR;
+    }
+
+    cor = test_ramification(search, root, LR, depth);
+    if (cor->f < best->f) {
+        free_search_nodes(search, best);
+        best = cor;
+        corner = LR;
+    }
+        
+    cor = test_ramification(search, root, LL, depth);
+    if (cor->f < best->f) { 
+        free_search_nodes(search, best);
+        best = cor;
+        corner = LL;
+    }
+
+    while (best->h) {
+        #ifndef DEBUG
+        clear_terminal();
+        print_board(search->flood, best->board);
+        usleep(50000);
+        printf("\n");
+        #endif
+        best = test_ramification(search, best, corner, depth);
+    }
+
+    #ifndef DEBUG
+    clear_terminal();
+    print_board(search->flood, best->board);
+    printf("\n");
+    #endif
+
+    time_searx = timestamp() - start;
+
+    #ifdef DEBUG
+    printf("\n\n---- TIMES SEARX\n");
+    printf("\tTotal: %.15g\n", time_searx);
+    printf("\tNx sc: %.15g\n", time_ns - time_paint);
+    printf("\tPaint: %.15g\n", time_paint);
+    printf("\tHeuri: %.15g\n", time_h);
+    #endif
+
+    return best;
+}
+
+search_node_t *search_node(search_t *search) {
+    search_node_t *best = searx(search, 3);
+    // search_node_t *best = sma(search);
+
+    print_actions(best);
+
+    return best;
+}
+
+int get_distance_from_corner(search_node_t *node, int corner) {
+    board_t *b = node->board;
+
+    int c_i = 0;
+    int c_j = 0;
+
+    int corner_painted = node->action.cor - 97; 
+
+    if (corner == LR || corner == LL)
+        c_i = b->fl->n - 1;
+
+    if (corner == UR || corner == LR)
+        c_j = b->fl->m - 1;
+
+    if (b->matrix[c_i][c_j].cor == corner_painted)
+        return 0;
+
+    int min_distance = INT_MAX, dist;
+
+    for (int i = 0; i < b->fl->n; i++) {
+        for (int j = 0; j < b->fl->m; j++) {
+            if (b->matrix[i][j].f && i != c_i && j != c_j) {
+                dist = abs(i - c_i) + abs(j - c_j);
+
+                if (dist < min_distance)
+                    min_distance = dist;
+            }
+        }
+    }
+
+    return min_distance;
+}
+
+int get_distance_from_middle(search_node_t *node) {
+    board_t *b = node->board;
+
+    int i_m = b->fl->n / 2;
+    int j_m = b->fl->m / 2;
+
+    unsigned dist, min_distance = i_m + j_m;
+
+    for (int i = 0; i < b->fl->n; i++) {
+        for (int j = 0; j < b->fl->m; j++) {
+            if (b->matrix[i][j].f) {
+                dist = abs(i - i_m) + abs(j - j_m);
+
+                if (dist < min_distance)
+                    min_distance = dist;    
+            }
+        }
+    }
+
+    return min_distance;
 }
 
 double heuristic(search_node_t *node) {
     board_t *b = node->board;
-
-    double h = 0;
 
     int total_cells = b->fl->n * b->fl->m;
     int cells_flooded = 0;
@@ -133,81 +389,12 @@ double heuristic(search_node_t *node) {
                 cells_flooded++;
 
     int cells_not_flooded = total_cells - cells_flooded;
+    int total_dist = get_distance_from_middle(node);
 
-    int i_middle = (b->fl->n - 1) / 2;
-    int j_middle = (b->fl->m - 1) / 2;
-    unsigned total_dist = 0;
+    if (total_dist)
+        return total_cells * total_dist;
 
-    for (int i = 0; i < 4; i++)
-        total_dist += find_closest_flooded_cell(
-            node, i_middle, j_middle, i
-        );
-
-    int num_cors = 0;
-
-    if (b->matrix[0][0].cor == 0) num_cors++;
-    if (b->matrix[0][b->fl->m - 1].cor == 1) num_cors++;
-    if (b->matrix[b->fl->n - 1][b->fl->m - 1].cor == 2) num_cors++;
-    if (b->matrix[b->fl->n - 1][0].cor == 3) num_cors++;
-
-    // int perimeter_sum = 0;
-    // for (int i = 0; i < b->fl->k; i++)
-    //     perimeter_sum += node->colors_presence[i];
-    // int avg = perimeter_sum / b->fl->k;
-    // int perimeter_diff = 0;
-    // for (int i = 0; i < b->fl->k; i++)
-    //     perimeter_diff += abs(node->colors_presence[i] - avg);
-
-    // int colors_present = 0;
-    // for (int i = 0; i < b->fl->k; i++)
-    //     if (node->colors_presence[i])
-    //         colors_present++;
-
-    // if (total_dist > 1)
-    //     h = 100000 * (num_cors + 1) * total_dist;
-    // else {
-    //     double mid_game = 100 * (cells_not_flooded + 0.4 * perimeter_diff);
-    //     double end_game = cells_not_flooded + 100 * (colors_present - 1);
-    //     h = max(mid_game, end_game);
-    // }
-    h = cells_not_flooded;
-
-    return h;
-}
-
-unsigned find_closest_flooded_cell(search_node_t *node, int i, int j, int cor) {
-    board_t *b = node->board;
-
-    int c_i = 0;
-    int c_j = 0;
-
-    if (cor == 1 || cor == 2)
-        c_j = b->fl->m - 1;
-
-    if (cor == 2 || cor == 3)
-        c_i = b->fl->n - 1;
-
-    int corner = b->matrix[c_i][c_j].cor;
-    unsigned dist, min_distance = abs(c_i - i) + abs(c_j - j);
-
-    for (int x = 0; x < b->fl->n; x++) {
-        for (int y = 0; y < b->fl->m; y++) {
-            if (
-                b->matrix[x][y].f &&
-                b->matrix[x][y].cor == corner
-            ) {
-                dist = abs(x - i) + abs(y - j);
-
-                if (dist < min_distance) {
-                    c_i = x;
-                    c_j = y;
-                    min_distance = dist;
-                }
-            }
-        }
-    }
-
-    return min_distance;
+    return cells_not_flooded;
 }
 
 search_node_t *sma(search_t *search) {
@@ -283,7 +470,7 @@ search_node_t *sma(search_t *search) {
             #ifdef DEBUG
             printf("[FL][SMA*][i=%d] Best is flooded, returning best\n", i);
             #endif
-            print_actions(best);
+
             state = 0;
             break;
         }
