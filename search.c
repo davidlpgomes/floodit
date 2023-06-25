@@ -8,10 +8,10 @@
 #include "search.h"
 #include "utils.h"
 
-double time_ns = 0;
-double time_paint = 0;
-double time_searx = 0;
-double time_h = 0;
+double time_deepening = 0;
+double time_next = 0;
+double time_flood = 0;
+double time_f = 0;
 
 
 search_t *create_search(flood_t *flood) {
@@ -37,7 +37,7 @@ void free_search(search_t *search) {
         return;
 
     if (search->root)
-        free_search_nodes(search, search->root);
+        free_search_node(search->root);
 
     free(search);
 
@@ -61,23 +61,8 @@ search_node_t *create_search_node(search_t *search, search_node_t *parent) {
     node->action.cor = 64;
     node->action.col = 0;
 
-    node->g = 0;
-    node->h = 0;
     node->f = 0;
-
-    node->succs = calloc(search->bf, sizeof(search_node_t*));
-    test_alloc(node->succs, "node succs");
-
-    node->succs_size = 0;
-
-    node->succs_states = calloc(search->bf, sizeof(char));
-    test_alloc(node->succs_states, "node succs states");
-
-    node->colors_presence = malloc(sizeof(unsigned char) * search->flood->k);
-    test_alloc(node->colors_presence, "node olors presence");
-
-    for (int i = 0; i < 4; i++)
-        node->q_count[i] = 1;
+    node->d = 0;
 
     #ifdef DEBUG
     printf("[FL] Search node created\n");
@@ -86,31 +71,44 @@ search_node_t *create_search_node(search_t *search, search_node_t *parent) {
     return node;
 }
 
-void free_search_nodes(search_t *search, search_node_t *node) {
+void free_search_node(search_node_t *node) {
     if (!node)
         return;
 
-    for (int i = 0; i < search->bf; i++)
-        if (node->succs[i])
-            free_search_nodes(search, node->succs[i]);
-
     free_board(node->board);
-
-    if (node->succs)
-        free(node->succs);
-
-    if (node->succs_states)
-        free(node->succs_states);
-
-    if (node->colors_presence)
-        free(node->colors_presence);
 
     free(node);
 
     return;
 }
 
+void free_search_nodes_n(search_node_t *node, int n) {
+    if (!n || !node || !node->parent)
+        return;
+
+    search_node_t *p = node->parent;
+    free_search_node(node);
+
+    free_search_nodes_n(p, n - 1);
+
+    return;
+}
+
+void free_search_nodes(search_node_t *node) {
+    if (!node || !node->parent)
+        return;
+
+    search_node_t *p = node->parent;
+    free_search_node(node);
+
+    free_search_nodes(p);
+
+    return;
+}
+
 search_node_t *next(search_t *search, search_node_t *parent, int i, int corner) {
+    double start = timestamp();
+
     board_t *b = parent->board;
 
     unsigned color = i + 1;
@@ -138,10 +136,6 @@ search_node_t *next(search_t *search, search_node_t *parent, int i, int corner) 
     search_node_t *succ = create_search_node(search, parent);
     copy_board(search->flood, succ->board, parent->board);
 
-    parent->succs_states[i] = EXISTS;
-    parent->succs[i] = succ;
-    parent->succs_size++;
-
     succ->parent = parent;
     succ->action.cor = corner + 97;
     succ->action.col = color;
@@ -155,21 +149,22 @@ search_node_t *next(search_t *search, search_node_t *parent, int i, int corner) 
     if (corner == UL || corner == LL) c = 0;
     else c = search->flood->m - 1;
 
-    double start = timestamp();
-    flood(search->flood, succ->board, color, r, c);
-    time_paint += timestamp() - start;
+    succ->d = parent->d + 1;
+
+    time_next += timestamp() - start;
 
     start = timestamp();
-    succ->h = heuristic(succ);
-    time_h += timestamp() - start;
+    flood(search->flood, succ->board, color, r, c);
+    time_flood += timestamp() - start;
 
-    succ->g = parent->g + 1;
-    succ->f = succ->g + succ->h;
+    start = timestamp();
+    succ->f = f(succ);
+    time_f += timestamp() - start;
 
     return succ;
 }
 
-search_node_t *test_ramification(
+search_node_t *deepening(
     search_t *search,
     search_node_t *node,
     int corner,
@@ -193,57 +188,42 @@ search_node_t *test_ramification(
     search_node_t *best_down = NULL;
 
     succ = next(search, node, 0, corner);
-    best_down = test_ramification(search, succ, corner, depth - 1);
+    best_down = deepening(search, succ, corner, depth - 1);
     best = best_down;
 
-    double start;
-
     for (int i = 1; i < search->bf; i++) {
-        start = timestamp();
         succ = next(search, node, i, corner);
-        time_ns += timestamp() - start;
+        search->ng++;
 
-        if (!succ) break;
-
-        if (!succ->h) {
+        if (!succ->f) {
+            free_search_nodes_n(best, depth);
             best = succ;
             break;
         }
 
-        search->ng++;
+        best_down = deepening(search, succ, corner, depth - 1);
 
-        /*
-        #ifndef DEBUG
-        clear_terminal();
-        print_board(search->flood, succ->board);
-        usleep(100000);
-        printf("\n");
-        #endif
-        */
-
-        best_down = test_ramification(search, succ, corner, depth - 1);
-
-        if (best_down->h < best->h) {
-            free_search_nodes(search, best);
+        if (best_down->f < best->f) {
+            free_search_nodes_n(best, depth);
             best = best_down;
         } else
-            free_search_nodes(search, best_down);
+            free_search_nodes_n(best_down, depth);
 
         #ifdef DEBUG
         printf(
-            "[RAM] Best is d=%u h=%f g=%f cor=%d col=%d\n",
-            depth, best->h, best->g, corner, best->action.col
+            "[RAM] Best is dep_d=%u f=%u depth=%u cor=%d col=%d\n",
+            depth, best->f, best->d, corner, best->action.col
         );
         #endif
 
-        if (!best->h)
+        if (!best->f)
             break;
     }
 
     return best;
 }
 
-search_node_t *searx(search_t *search, int depth) {
+search_node_t *search(search_t *search, int depth, char print) {
     search_node_t *root = search->root, *best;
 
     #ifdef DEBUG
@@ -253,97 +233,41 @@ search_node_t *searx(search_t *search, int depth) {
     double start = timestamp();
 
     int corner = UL;
-    search_node_t *cor = test_ramification(search, root, UL, depth);
+    search_node_t *cor = deepening(search, root, UL, depth);
     best = cor;
 
-    cor = test_ramification(search, root, UR, depth);
-    if (cor->f < best->f) {
-        free_search_nodes(search, best);
-        best = cor;
-        corner = UR;
-    }
+    for (int c = UR; c <= LL; c++) {
+        cor = deepening(search, root, c, depth);
 
-    cor = test_ramification(search, root, LR, depth);
-    if (cor->f < best->f) {
-        free_search_nodes(search, best);
-        best = cor;
-        corner = LR;
-    }
-        
-    cor = test_ramification(search, root, LL, depth);
-    if (cor->f < best->f) { 
-        free_search_nodes(search, best);
-        best = cor;
-        corner = LL;
-    }
-
-    while (best->h) {
-        #ifndef DEBUG
-        clear_terminal();
-        print_board(search->flood, best->board);
-        usleep(50000);
-        printf("\n");
-        #endif
-        best = test_ramification(search, best, corner, depth);
-    }
-
-    #ifndef DEBUG
-    clear_terminal();
-    print_board(search->flood, best->board);
-    printf("\n");
-    #endif
-
-    time_searx = timestamp() - start;
-
-    #ifdef DEBUG
-    printf("\n\n---- TIMES SEARX\n");
-    printf("\tTotal: %.15g\n", time_searx);
-    printf("\tNx sc: %.15g\n", time_ns - time_paint);
-    printf("\tPaint: %.15g\n", time_paint);
-    printf("\tHeuri: %.15g\n", time_h);
-    #endif
-
-    return best;
-}
-
-search_node_t *search_node(search_t *search) {
-    search_node_t *best = searx(search, 3);
-    print_actions(best);
-
-    return best;
-}
-
-int get_distance_from_corner(search_node_t *node, int corner) {
-    board_t *b = node->board;
-
-    int c_i = 0;
-    int c_j = 0;
-
-    int corner_painted = node->action.cor - 97; 
-
-    if (corner == LR || corner == LL)
-        c_i = b->fl->n - 1;
-
-    if (corner == UR || corner == LR)
-        c_j = b->fl->m - 1;
-
-    if (b->matrix[c_i][c_j].cor == corner_painted)
-        return 0;
-
-    int min_distance = INT_MAX, dist;
-
-    for (int i = 0; i < b->fl->n; i++) {
-        for (int j = 0; j < b->fl->m; j++) {
-            if (b->matrix[i][j].f && i != c_i && j != c_j) {
-                dist = abs(i - c_i) + abs(j - c_j);
-
-                if (dist < min_distance)
-                    min_distance = dist;
-            }
+        if (cor->f < best->f) {
+            free_search_nodes_n(best, depth);
+            best = cor;
+            corner = c;
         }
     }
 
-    return min_distance;
+    while (best->f) {
+        best = deepening(search, best, corner, depth);
+
+        if (print) {
+            clear_terminal();
+            print_board(search->flood, best->board);
+            usleep(50000);
+            printf("\n");
+        }
+    }
+
+    time_deepening = timestamp() - start;
+
+    #ifdef DEBUG
+    printf("\n\n---- TIMES\n");
+    printf("\tTotal deep: %.15g\n", time_deepening);
+    printf("\tNext: %.15g\n", time_next);
+    printf("\tFlood: %.15g\n", time_flood);
+    printf("\tCost fun: %.15g\n\n", time_f);
+    #endif
+
+    return best;
 }
 
 int get_distance_from_middle(search_node_t *node) {
@@ -354,8 +278,26 @@ int get_distance_from_middle(search_node_t *node) {
 
     unsigned dist, min_distance = i_m + j_m;
 
-    for (int i = 0; i < b->fl->n; i++) {
-        for (int j = 0; j < b->fl->m; j++) {
+    int corner = node->action.cor - 97;
+
+    int i_beg = 0;
+    int j_beg = 0;
+
+    int i_end = i_m;
+    int j_end = j_m;
+
+    if (corner == LR || corner == LL) {
+        i_beg = i_m;
+        i_end = b->fl->n - 1;
+    }
+
+    if (corner == UR || corner == LR) {
+        j_beg = j_m;
+        j_end = b->fl->m - 1;
+    }
+
+    for (int i = i_beg; i <= i_end; i++) {
+        for (int j = j_beg; j <= j_end; j++) {
             if (b->matrix[i][j].f) {
                 dist = abs(i - i_m) + abs(j - j_m);
 
@@ -368,30 +310,19 @@ int get_distance_from_middle(search_node_t *node) {
     return min_distance;
 }
 
-double heuristic(search_node_t *node) {
-    board_t *b = node->board;
-
-    int total_cells = b->fl->n * b->fl->m;
-    int cells_flooded = 0;
-
-    for (int i = 0; i < b->fl->n; i++)
-        for (int j = 0; j < b->fl->m; j++)
-            if (b->matrix[i][j].f)
-                cells_flooded++;
-
-    int cells_not_flooded = total_cells - cells_flooded;
+unsigned f(search_node_t *node) {
     int total_dist = get_distance_from_middle(node);
 
     if (total_dist)
-        return total_cells * total_dist;
+        return node->board->fl->n * node->board->fl->m * total_dist;
 
-    return cells_not_flooded;
+    return node->board->cells_not_flooded;
 }
 
 void print_actions(search_node_t *node) {
-    printf("%d\n", (int) node->g);
+    printf("%d\n", (int) node->d);
 
-    unsigned size = 2 * (node->g);
+    unsigned size = 2 * (node->d);
 
     char* action_chars = malloc(size * sizeof(unsigned char));
     test_alloc(action_chars, "actions chars");
@@ -412,3 +343,4 @@ void print_actions(search_node_t *node) {
 
     return;
 }
+

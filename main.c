@@ -8,11 +8,78 @@
 #include "utils.h"
 
 
-int main() {
+void flood_random(flood_t *fl) {
+    if (!fl)
+        return;
+
+    board_t *b = fl->board;
+
+    unsigned char color;
+    unsigned char corner;
+    unsigned r, c;
+
+    int ei = fl->n - 1;
+    int ej = fl->m - 1;
+
+    clear_terminal();
+    print_board(fl, b);
+
+    unsigned steps = 0;
+
+    while (!is_flooded(fl, fl->board)) {
+        corner = random() % 4;
+
+        if (corner == UL || corner == UR) r = 0;
+        else r = ei;
+
+        if (corner == UL || corner == LL) c = 0;
+        else c = ej;
+
+        color = (random() % fl->k) + 1;
+
+        if (
+            (corner == UL && color >= b->matrix[0][0].c) ||
+            (corner == UR && color >= b->matrix[0][ej].c) ||
+            (corner == LR && color >= b->matrix[ei][ej].c) ||
+            (corner == LL && color >= b->matrix[ei][0].c)
+        )
+            color++;
+
+        flood(fl, b, color, r, c); 
+        steps++;
+
+        usleep(1000);
+        clear_terminal();
+        print_board(fl, b);
+    }
+
+    printf("\nPassos: %u\n", steps);
+
+    return;
+}
+
+int main(int argc, char **argv) {
     srand(time(NULL));
 
     // Disable buffer for stdout
     setvbuf(stdout, 0, _IONBF, 0);
+
+    char print = 0, run_random = 0;
+
+    int opt;
+    while ((opt = getopt(argc, argv, "pr")) != -1) {
+        switch (opt) {
+            case 'p':
+                print = 1;
+                break;
+            case 'r':
+                run_random = 1;
+                break;
+            default:
+                printf("Usage: %s [-p] [-r]", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
 
     unsigned n, m, k;
 
@@ -25,50 +92,38 @@ int main() {
     printf("[FL] Parameters read: n=%u m=%u k=%u\n", n, m, k);
     #endif
 
+    if (!n || !m || !k) {
+        fprintf(stderr, "Erro: parâmetros não podem ser nulos\n");
+        exit(EXIT_FAILURE);
+    }
+
     flood_t *fl = create_flood(n, m, k);
     read_board(fl, fl->board);
 
-    // clear_terminal();
-    // print_board(fl, fl->board);
-    // unsigned color;
-    // unsigned corner;
+    if (run_random) {
+        flood_random(fl);
+        free_flood(fl);
 
-    // while (!is_flooded(fl, fl->board)) {
-    //     for (int i = 1; i <= fl->k; i++) {
-    //         printf("    %d) ", i);
-    //         printf(ansi_bgs[i - 1]);
-    //         printf("  " ANSI_COLOR_RESET);
-    //     }
-    //     printf("\nChoose color: ");
-    //     scanf("%u", &color);
-
-    //     printf("\n1) UL  2) UR  3) LR  4) LL, choose: ");
-    //     scanf("%u", &corner);
-
-    //     usleep(100000);
-    //     int r = 0, c = 0;
-    //     if (corner == 2 || corner == 3)
-    //         c = fl->m - 1;
-    //     if (corner == 3 || corner == 4)
-    //         r = fl->n - 1;
-    //     flood(fl, fl->board, color, r, c);
-    //     clear_terminal();
-    //     print_board(fl, fl->board);
-    // }
-    // return 0;
-
-    clear_terminal();
-    search_t *search = create_search(fl);
-    search_node_t *best = search_node(search);
-
-    if (!best)
-        fprintf(stderr, "Could not find path\n");
-    else {
-        printf("Busca (baseline) - passos: %d\n", (int) best->g);
-        printf("    Nodos gerados: %u\n", search->ng);
+        return 0;
     }
 
-    free_search(search);
+    search_t *s = create_search(fl);
+    search_node_t *best = search(s, 2, print);
+
+    if (!best) {
+        fprintf(stderr, "Could not find path\n");
+        exit(1);
+    }
+
+    #ifdef DEBUG
+    printf("Passos: %d\n", (int) best->d);
+    printf("Nodos gerados: %u\n", s->ng);
+    #endif
+
+    print_actions(best);
+
+    free_search_nodes(best);
+    free_search(s);
     free_flood(fl);
 
     #ifdef DEBUG

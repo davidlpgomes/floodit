@@ -4,8 +4,8 @@
 #include "floodit.h"
 #include "utils.h"
 
-flood_t* create_flood(unsigned n, unsigned m, unsigned k) {
-    flood_t* fl = malloc(sizeof(flood_t));
+flood_t *create_flood(unsigned n, unsigned m, unsigned k) {
+    flood_t *fl = malloc(sizeof(flood_t));
     test_alloc(fl, "flood");
 
     fl->n = n;
@@ -37,13 +37,13 @@ void free_flood(flood_t* fl) {
     return;
 }
 
-board_t* create_board(flood_t* fl) {
+board_t *create_board(flood_t *fl) {
     if (!fl) {
         fprintf(stderr, "Error: flood does not exist\n");
         exit(1);
     }
 
-    board_t* board = malloc(sizeof(board_t));
+    board_t *board = malloc(sizeof(board_t));
     test_alloc(board, "board");
 
     board->fl = fl;
@@ -71,6 +71,8 @@ board_t* create_board(flood_t* fl) {
     board->matrix[fl->n - 1][fl->m - 1].f = 1;
     board->matrix[fl->n - 1][fl->m - 1].cor = 3;
 
+    board->cells_not_flooded = fl->n * fl->m - 1;
+
     #ifdef DEBUG
     printf("[FL] Board created\n");
     #endif
@@ -93,7 +95,7 @@ void free_board(board_t *board) {
     return;
 }
 
-void read_board(flood_t *flood, board_t* board) {
+void read_board(flood_t *flood, board_t *board) {
     unsigned c;
 
     for (int i = 0; i < flood->n; i++)
@@ -114,6 +116,8 @@ void copy_board(flood_t *flood, board_t *destination, board_t *source) {
 
     for (int i = 0; i < matrix_size; i++)
         destination->matrix[0][i] = source->matrix[0][i];
+
+    destination->cells_not_flooded = source->cells_not_flooded;
 
     return;
 }
@@ -235,6 +239,8 @@ void floodC(
     if (board->matrix[r][c].c == color) {
         board->matrix[r][c].f = 1;
         board->matrix[r][c].cor = cor;
+
+        board->cells_not_flooded -= 1;
 
         floodN(flood, board, color, cor, r, c);
     }

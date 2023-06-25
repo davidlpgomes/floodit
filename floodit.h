@@ -12,6 +12,7 @@ typedef struct cell_t {
 typedef struct board_t {
     struct flood_t *fl;    // Pointer to Floodit game
     cell_t **matrix;       // Matrix with the board cells
+    unsigned cells_not_flooded;
 } board_t;
 
 typedef struct flood_t {
