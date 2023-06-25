@@ -107,8 +107,13 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    int depth = 3;
+
+    if (n > 70 || m > 70 || k >= 15)
+        depth = 2;
+
     search_t *s = create_search(fl);
-    search_node_t *best = search(s, 2, print);
+    search_node_t *best = search(s, depth, print);
 
     if (!best) {
         fprintf(stderr, "Could not find path\n");
